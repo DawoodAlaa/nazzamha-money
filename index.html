@@ -93,6 +93,21 @@
       window.addEventListener('load', function () {
         navigator.serviceWorker.register('sw.js');
       });
+      // Hand everything this visit loaded to the worker so the app opens
+      // offline even after just one online visit (fonts load a bit later,
+      // hence the second pass).
+      var warm = function () {
+        navigator.serviceWorker.ready.then(function (reg) {
+          var base = document.baseURI.split('#')[0];
+          var urls = performance.getEntriesByType('resource').map(function (e) { return e.name; });
+          urls.push(base, new URL('index.html', base).href);
+          if (reg.active) reg.active.postMessage({ type: 'warm', urls: urls });
+        });
+      };
+      window.addEventListener('flutter-first-frame', function () {
+        setTimeout(warm, 2000);
+        setTimeout(warm, 12000);
+      });
     }
   </script>
   <script src="flutter_bootstrap.js" async></script>
