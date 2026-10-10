@@ -60,9 +60,25 @@
       var errBox = document.getElementById('boot-err');
       var started = false;
 
+      // One automatic reload per session if a file fails to download (flaky
+      // mobile data, or Safari dropping requests while the offline worker
+      // updates). Storage may be blocked, so every access is guarded.
+      function retried() { try { return sessionStorage.getItem('nz-retry') === '1'; } catch (_) { return true; } }
+      function setRetried(v) { try { v ? sessionStorage.setItem('nz-retry', '1') : sessionStorage.removeItem('nz-retry'); } catch (_) {} }
+      var reloading = false;
+      function retryOnce() {
+        if (started || reloading || retried()) return false;
+        reloading = true;
+        setRetried(true);
+        document.getElementById('boot-msg').textContent = 'بنحاول تاني…';
+        setTimeout(function () { location.reload(); }, 1200);
+        return true;
+      }
+
       // Remove the loading screen once Flutter has drawn its first frame.
       window.addEventListener('flutter-first-frame', function () {
         started = true;
+        setRetried(false);
         boot.style.opacity = '0';
         setTimeout(function () { boot.remove(); }, 400);
       });
@@ -70,15 +86,19 @@
       // If something fails before the app starts, show it on screen so a
       // screenshot tells us exactly what went wrong on that phone.
       function show(msg) {
-        if (started) return;
+        if (started || reloading) return;
         errBox.style.display = 'block';
         errBox.textContent += (errBox.textContent ? '\n' : '') + msg;
       }
       window.addEventListener('error', function (e) {
-        show('Error: ' + (e.message || (e.target && (e.target.src || e.target.href)) || e));
+        var src = e.target && (e.target.src || e.target.href);
+        if (src && retryOnce()) return;
+        show('Error: ' + (e.message || src || e));
       }, true);
       window.addEventListener('unhandledrejection', function (e) {
-        show('Promise: ' + (e.reason && (e.reason.message || e.reason)));
+        var msg = e.reason && (e.reason.message || e.reason);
+        if (/load failed|failed to fetch|networkerror/i.test(String(msg)) && retryOnce()) return;
+        show('Promise: ' + msg);
       });
       setTimeout(function () {
         if (started) return;

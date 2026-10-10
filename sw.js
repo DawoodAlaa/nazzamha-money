@@ -1,6 +1,6 @@
 // Offline cache for the web app (e.g. on iPhone from the home screen).
 // Network first so updates show up when online; cache as the fallback.
-const CACHE = 'nazzamha-money-v3';
+const CACHE = 'nazzamha-money-v4';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -51,6 +51,13 @@ self.addEventListener('fetch', (event) => {
         }
         return res;
       })
-      .catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match('index.html'))),
+      .catch(() =>
+        caches
+          .match(req, { ignoreSearch: true })
+          // Only page loads fall back to the app shell — never hand HTML to a script.
+          .then((hit) => hit || (req.mode === 'navigate' ? caches.match('index.html') : undefined))
+          // Nothing cached yet (first visit / mid-update): try the network once more.
+          .then((hit) => hit || fetch(req)),
+      ),
   );
 });
