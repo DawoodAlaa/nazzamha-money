@@ -1,13 +1,10 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <base href="/nazzamha-money/">
-
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="نظمها — فلوسك، ديونك وأقساطك في مكان واحد">
-  <meta name="theme-color" content="#FFFFFF">
+  <meta name="theme-color" content="#F3F6FC">
 
   <!-- iPhone "Add to Home Screen": full screen, own icon and name -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -15,121 +12,38 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="نظمها">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-
-  <link rel="icon" type="image/png" href="favicon.png"/>
-  <title>نظمها — المال</title>
+  <link rel="icon" type="image/png" href="favicon.png">
   <link rel="manifest" href="manifest.json">
+  <title>نظمها — المال</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="app.css">
+  <link rel="modulepreload" href="store.js">
+  <link rel="modulepreload" href="icons.js">
 
   <style>
-    html, body { margin: 0; height: 100%; background: #FFFFFF; }
-    /* Shown instantly while Flutter downloads (a few MB the first time). */
-    #boot {
-      position: fixed; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 18px;
-      font-family: -apple-system, "SF Arabic", "Geeza Pro", system-ui, sans-serif;
-      color: #6B7A99; background: radial-gradient(circle, #FFFFFF 40%, #F1F6FF 100%);
-      transition: opacity .35s ease;
-    }
-    #boot img { width: 110px; height: 110px; border-radius: 26px; animation: pulse 1.6s ease-in-out infinite; }
-    #boot .bar { width: 150px; height: 6px; border-radius: 3px; background: #E8EDF6; overflow: hidden; }
-    #boot .bar::after {
-      content: ""; display: block; width: 40%; height: 100%; border-radius: 3px;
-      background: linear-gradient(90deg, #4C8DFF, #1D5BEA); animation: slide 1.1s ease-in-out infinite;
-    }
-    #boot .msg { font-size: 15px; font-weight: 600; }
-    #boot .err {
-      display: none; max-width: 86%; padding: 12px 14px; border-radius: 12px; background: #FDEEEE;
-      color: #B91C1C; font-size: 13px; line-height: 1.5; direction: ltr; text-align: left;
-      word-break: break-word; white-space: pre-wrap;
-    }
-    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-    @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(260%); } }
+    #boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #f3f6fc; z-index: 100; }
+    #boot img { width: 96px; height: 96px; border-radius: 24px; }
+    #boot-err { display: none; max-width: 86%; padding: 12px 14px; border-radius: 12px; background: #fdeeee; color: #b91c1c; font-size: 13px; }
   </style>
 </head>
 <body>
-  <div id="boot">
-    <img src="icons/Icon-192.png" alt="نظمها">
-    <div class="bar"></div>
-    <div class="msg" id="boot-msg">جاري التحميل…</div>
-    <div class="err" id="boot-err"></div>
-  </div>
+  <div id="boot"><img src="icons/Icon-192.png" alt="نظمها"><div id="boot-err"></div></div>
+  <div id="app"></div>
 
   <script>
-    (function () {
-      var boot = document.getElementById('boot');
-      var errBox = document.getElementById('boot-err');
-      var started = false;
-
-      // One automatic reload per session if a file fails to download (flaky
-      // mobile data, or Safari dropping requests while the offline worker
-      // updates). Storage may be blocked, so every access is guarded.
-      function retried() { try { return sessionStorage.getItem('nz-retry') === '1'; } catch (_) { return true; } }
-      function setRetried(v) { try { v ? sessionStorage.setItem('nz-retry', '1') : sessionStorage.removeItem('nz-retry'); } catch (_) {} }
-      var reloading = false;
-      function retryOnce() {
-        if (started || reloading || retried()) return false;
-        reloading = true;
-        setRetried(true);
-        document.getElementById('boot-msg').textContent = 'بنحاول تاني…';
-        setTimeout(function () { location.reload(); }, 1200);
-        return true;
-      }
-
-      // Remove the loading screen once Flutter has drawn its first frame.
-      window.addEventListener('flutter-first-frame', function () {
-        started = true;
-        setRetried(false);
-        boot.style.opacity = '0';
-        setTimeout(function () { boot.remove(); }, 400);
-      });
-
-      // If something fails before the app starts, show it on screen so a
-      // screenshot tells us exactly what went wrong on that phone.
-      function show(msg) {
-        if (started || reloading) return;
-        errBox.style.display = 'block';
-        errBox.textContent += (errBox.textContent ? '\n' : '') + msg;
-      }
-      window.addEventListener('error', function (e) {
-        var src = e.target && (e.target.src || e.target.href);
-        if (src && retryOnce()) return;
-        show('Error: ' + (e.message || src || e));
-      }, true);
-      window.addEventListener('unhandledrejection', function (e) {
-        var msg = e.reason && (e.reason.message || e.reason);
-        if (/load failed|failed to fetch|networkerror/i.test(String(msg)) && retryOnce()) return;
-        show('Promise: ' + msg);
-      });
-      setTimeout(function () {
-        if (started) return;
-        document.getElementById('boot-msg').textContent =
-          'التحميل أخد وقت أطول من العادي… لو فضل كده ابعت سكرين شوت';
-        show(navigator.userAgent);
-      }, 30000);
-    })();
-
-    // Offline support: cache the app the first time it's opened online.
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function () {
-        navigator.serviceWorker.register('sw.js');
-      });
-      // Hand everything this visit loaded to the worker so the app opens
-      // offline even after just one online visit (fonts load a bit later,
-      // hence the second pass).
-      var warm = function () {
-        navigator.serviceWorker.ready.then(function (reg) {
-          var base = document.baseURI.split('#')[0];
-          var urls = performance.getEntriesByType('resource').map(function (e) { return e.name; });
-          urls.push(base, new URL('index.html', base).href);
-          if (reg.active) reg.active.postMessage({ type: 'warm', urls: urls });
-        });
-      };
-      window.addEventListener('flutter-first-frame', function () {
-        setTimeout(warm, 2000);
-        setTimeout(warm, 12000);
-      });
+    // Anything that stops the app from starting is shown on screen.
+    window.addEventListener('error', function (e) {
+      var b = document.getElementById('boot-err');
+      if (b && document.getElementById('boot')) { b.style.display = 'block'; b.textContent += (e.message || 'Error') + '\n'; }
+    });
+    // "?nosw" skips offline caching (for testing changes).
+    if ('serviceWorker' in navigator && location.search.indexOf('nosw') < 0) {
+      window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js'); });
     }
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
