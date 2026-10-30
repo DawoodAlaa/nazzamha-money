@@ -1206,6 +1206,20 @@ function openBackup() {
       api.close();
       toast('اتنقلت بيانات الفلوس ✓');
     });
+    const wipe = async () => {
+      const first = await confirmSheet('تمسح كل البيانات؟',
+        'كل المعاملات والميزانية والأهداف والديون والأقساط والجمعيات اللي على الجهاز ده هتتمسح.\nلو عايز تحتفظ بيها، صدّر نسخة الأول.',
+        'أيوه، امسح');
+      if (!first) return;
+      const sure = await confirmSheet('متأكد؟', 'مفيش رجوع بعد المسح.', 'امسح كل حاجة');
+      if (!sure) return;
+      S.resetAll();
+      Object.assign(ui, { month: Dates.monthStart(new Date()), cur: null, txFilter: 0, debtFilter: 0, query: '', catFilter: null });
+      api.close();
+      go('/', { replace: true });
+      render();
+      toast('اتمسحت كل البيانات');
+    };
     const action = (icon, color, title, sub, fn) => `<div class="card tap" style="padding:12px;margin-bottom:8px" ${on(fn)}><div class="row">
       <div class="badge" style="width:44px;height:44px;background:${tint(color, 0.14)};color:${color}">${ic(icon)}</div>
       <div class="grow"><div class="xbold">${title}</div><div class="small muted">${sub}</div></div>${ic('chevron_left', `color:${C.faint}`)}</div></div>`;
@@ -1217,7 +1231,9 @@ function openBackup() {
       ${action('file_open', C.orange, 'استيراد ملف', 'هيحل مكان بيانات الفلوس اللي على الجهاز ده', imp)}
       ${msg ? `<div class="msg ${msg.err ? 'err' : 'ok'}">${esc(msg.text)}</div>` : ''}
       <div class="gap12"></div><div class="small muted" style="background:#f6f8fd;border-radius:12px;padding:10px 12px">
-        عندك بيانات في النسخة القديمة (Flutter)؟ <a href="old/" style="color:${C.primary};font-weight:700">افتحها من هنا</a>، صدّر منها الملف، وبعدين استورده هنا.</div>`;
+        عندك بيانات في النسخة القديمة (Flutter)؟ <a href="old/" style="color:${C.primary};font-weight:700">افتحها من هنا</a>، صدّر منها الملف، وبعدين استورده هنا.</div>
+      <div class="gap16"></div><div class="bold small" style="margin-bottom:6px;color:${C.red}">مسح</div>
+      ${action('delete', C.red, 'امسح كل البيانات', 'يرجع التطبيق فاضي زي أول مرة — صدّر نسخة الأول لو محتاجها', wipe)}`;
   });
 }
 

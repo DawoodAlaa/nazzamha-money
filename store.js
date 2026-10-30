@@ -546,3 +546,13 @@ export function importBackup(file) {
     for (const [k, v] of Object.entries(file.data.settings || {})) if (isMoneySetting(k)) s.settings[k] = String(v);
   });
 }
+
+/** Deletes all money data on this device and starts over like a fresh install. */
+export function resetAll() {
+  mutate((s) => {
+    const fresh = emptyState();
+    seed(fresh);
+    s.settings = fresh.settings;
+    s.tables = fresh.tables;
+  });
+}
