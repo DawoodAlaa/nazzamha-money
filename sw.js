@@ -1,7 +1,7 @@
 // Offline support. The app's files are small, so they're all cached on
 // install and served from the cache instantly; a newer version (new CACHE
 // name) is fetched in the background and used from the next open.
-const CACHE = 'nazzamha-web-v3';
+const CACHE = 'nazzamha-web-v4';
 const FONTS = 'nazzamha-fonts';
 const APP = [
   './', 'index.html', 'app.css', 'app.js', 'store.js', 'icons.js', 'icons.otf', 'manifest.json',

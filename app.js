@@ -76,6 +76,11 @@ document.addEventListener('change', (e) => {
   const fn = handler(e.target.dataset?.c);
   if (fn) fn(e.target.value, e.target);
 });
+document.addEventListener('focusout', (e) => {
+  const fn = handler(e.target.dataset?.o);
+  if (fn) fn(e.target.value, e.target);
+});
+const onBlur = (fn) => `data-o="${reg(fn)}"`;
 
 // ------------------------------------------------------------------ routing
 
@@ -94,16 +99,26 @@ function go(path, { replace = false } = {}) {
   if (replace) location.replace('#' + path);
   else { depth++; location.hash = path; }
 }
+// Set while a back navigation is on its way, so nothing goes back twice.
+let leaving = false;
 function goBack() {
+  if (leaving) return;
+  leaving = true;
+  setTimeout(() => { leaving = false; }, 800); // in case no hashchange comes
   if (depth > 0) { depth--; history.back(); } else go('/', { replace: true });
 }
-window.addEventListener('hashchange', () => render());
+window.addEventListener('hashchange', () => { leaving = false; render(); });
 
 let lastKey = null;
 function render() {
   const r = route();
   const same = r.key === lastKey;
   const y = window.scrollY;
+  if (!same) {
+    // Arriving on a page (not redrawing it): forms and searches start fresh.
+    formKey = null;
+    if (r.path === '/transactions') { ui.query = ''; ui.catFilter = null; }
+  }
   let html;
   withScope('page', () => {
     try { html = view(r); } catch (err) {
@@ -781,7 +796,13 @@ function summaryCard({ color, icon, title, subtitle, status, prog, items }) {
     <div class="gap12"></div><div class="chips-wrap">${items.map(([l, v]) => `<div class="info-chip"><span>${esc(l)}</span><b>${v}</b></div>`).join('')}</div></div>`;
 }
 
-const missing = () => { setTimeout(() => goBack(), 0); return '<div class="page"></div>'; };
+/** The item was deleted (or never existed): leave the page, once. */
+const missing = () => {
+  const here = location.hash;
+  // Skip if a back navigation (e.g. right after deleting) already left the page.
+  setTimeout(() => { if (location.hash === here) goBack(); }, 0);
+  return '<div class="page"></div>';
+};
 
 function paidRow({ title, subtitle, amount, paid, beforeApp, late, onToggle, onEdit }) {
   return `<div class="paid-row" ${on(() => onToggle(!paid))}>
@@ -833,7 +854,7 @@ async function editDebt(d) {
     <button class="input row" style="justify-content:space-between" ${on(async () => { const r = await calculator({ initial: f.total, cur: d.currency, title: 'المبلغ' }); if (r != null) { f.total = r; api.render(); } })}>
       <span class="bold num">${esc(Money.number(Money.parse(f.total) || 0))}</span><span class="muted">${esc(Money.symbol(d.currency))}</span></button><div class="gap8"></div>
     <div class="row"><label class="input picker grow">${ic('event')}<span>${f.due ? Dates.full(f.due) : 'من غير ميعاد'}</span>
-      <input type="date" value="${f.due ? Dates.key(f.due) : ''}" ${onChange((v) => { if (v) { f.due = Dates.fromKey(v); api.render(); } })}></label>
+      ${dateInput(f.due, (v) => { f.due = v; }, () => api.render())}</label>
       ${f.due ? `<button class="icon-btn" ${on(() => { f.due = null; api.render(); })}>${ic('close')}</button>` : ''}</div>
     <div class="actions"><button class="btn outline" ${on(() => api.close(false))}>إلغاء</button><button class="btn primary" ${on(() => api.close(true))}>حفظ</button></div>`);
   const amount = Money.parse(f.total);
@@ -963,9 +984,25 @@ function amountField(f, field, { currencyKey = 'currency', title } = {}) {
     <button class="cur" ${on(async () => { const c = await pickCurrencyCode(f[currencyKey]); if (c) { f[currencyKey] = c; render(); } })}>${esc(Money.symbol(f[currencyKey]))}</button></div>`;
 }
 
+let dateTimer = null;
+function dateInput(d, set, redraw = render) {
+  const commit = () => { clearTimeout(dateTimer); dateTimer = null; redraw(); };
+  return `<input type="date" value="${d ? Dates.key(d) : ''}" ${onChange((v, el) => {
+    if (!v) return;
+    const picked = Dates.fromKey(v);
+    set(picked);
+    const label = el.parentElement;
+    label.classList.remove('placeholder');
+    const span = label.querySelector('span');
+    if (span) span.textContent = Dates.full(picked);
+    clearTimeout(dateTimer);
+    dateTimer = setTimeout(commit, 1000);
+  })} ${onBlur(() => { if (dateTimer) commit(); })}>`;
+}
+
 function dateField(d, set, { placeholder, clearable = false } = {}) {
   return `<div class="row"><label class="picker ${d ? '' : 'placeholder'}">${ic('edit_calendar')}<span>${d ? Dates.full(d) : esc(placeholder)}</span>
-    <input type="date" value="${d ? Dates.key(d) : ''}" ${onChange((v) => { if (v) { set(Dates.fromKey(v)); render(); } })}></label>
+    ${dateInput(d, set)}</label>
     ${clearable && d ? `<button class="icon-btn" aria-label="من غير ميعاد" ${on(() => { set(null); render(); })}>${ic('close')}</button>` : ''}</div>`;
 }
 
@@ -1246,7 +1283,6 @@ function openBackup() {
       if (document.body.contains(api.el)) api.render();
     };
     const save = run(async () => {
-      await S.flush();
       download(S.exportJson(), S.backupName());
       msg = { err: false, text: `الملف اتنزّل ✓  (${S.backupName()})` };
     });
