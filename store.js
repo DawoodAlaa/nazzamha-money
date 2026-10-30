@@ -156,9 +156,18 @@ async function idbPut(value) {
 }
 
 function emptyState() {
-  const tables = {};
+  const tables = { accounts: [] };
   for (const t of MONEY_TABLES) tables[t] = [];
   return { settings: {}, tables };
+}
+
+/** The two accounts every device starts with (renameable, more can be added). */
+function seedAccounts(s, currency) {
+  const now = Date.now();
+  s.tables.accounts = [
+    { id: 1, name: 'محفظة كاش', icon: 'smartphone', color: 0xffef4444, currency, openingBalance: 0, sortOrder: 0, createdAt: now },
+    { id: 2, name: 'نقدي', icon: 'payments', color: 0xff16a34a, currency, openingBalance: 0, sortOrder: 1, createdAt: now },
+  ];
 }
 
 function seed(s) {
@@ -179,6 +188,7 @@ function seed(s) {
   for (const [name, icon, color] of income) s.tables.categories.push({ id: id++, name, icon, color, type: EntryType.income, sortOrder: order++ });
   const tpl = [['إيجار البيت', 5, 'home', 0xffef4444], ['فاتورة كهربا', 4, 'electric', 0xfff59e0b], ['فاتورة مية', 4, 'water', 0xff3b82f6], ['مشتريات البيت', 6, 'cart', 0xff22c55e]];
   tpl.forEach(([title, categoryId, icon, color], i) => s.tables.expense_templates.push({ id: i + 1, title, amount: 0, currency: 'EGP', categoryId, icon, color }));
+  seedAccounts(s, 'EGP');
 }
 
 export async function load() {
@@ -193,6 +203,8 @@ export async function load() {
   }
   for (const t of MONEY_TABLES) s.tables[t] ||= [];
   s.settings ||= {};
+  // Data saved before accounts existed gets the two starting accounts.
+  if (!Array.isArray(s.tables.accounts)) seedAccounts(s, s.settings.currency || 'EGP');
   state = s;
   try { navigator.storage?.persist?.(); } catch (_) { /* ignore */ }
   generateRecurring(new Date(), true);
@@ -266,6 +278,7 @@ export function addEntry(e) {
       id, title: e.title, amount: e.amount, currency: e.currency, type: e.type,
       categoryId: e.categoryId ?? null, goalId: e.goalId ?? null, date: e.date, note: e.note ?? null,
       recurring: !!e.recurring, seriesId: e.recurring ? id : null, createdAt: Date.now(),
+      accountId: e.accountId ?? null,
     };
     T('money_entries').push(row);
     return id;
@@ -303,7 +316,7 @@ export function generateRecurring(now, silent = false) {
       add.push({
         id: id++, title: last.title, amount: last.amount, currency: last.currency, type: last.type,
         categoryId: last.categoryId, goalId: last.goalId, date: next.getTime(), note: last.note,
-        recurring: true, seriesId: last.seriesId, createdAt: Date.now(),
+        recurring: true, seriesId: last.seriesId, createdAt: Date.now(), accountId: last.accountId ?? null,
       });
       next = Dates.addMonths(next, 1);
     }
@@ -495,7 +508,61 @@ export const deleteAssociation = (id) => mutate((s) => {
 export function mirror({ title, amount, currency, income }) {
   const type = income ? EntryType.income : EntryType.expense;
   const cat = T('categories').find((c) => c.name === DEBT_CATEGORY && c.type === type);
-  return addEntry({ title, amount, currency, type, categoryId: cat ? cat.id : null, date: Date.now() });
+  return addEntry({ title, amount, currency, type, categoryId: cat ? cat.id : null, date: Date.now(), accountId: defaultAccountId(currency) });
+}
+
+// ------------------------------------------------------------------ accounts
+// Where the money is (محفظة كاش، نقدي، بنك…). Balance = what the user said
+// they had when adding the account + income − expenses − savings since.
+
+export const accounts = (currency = null) => [...state.tables.accounts]
+  .filter((a) => !currency || a.currency === currency)
+  .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+export const account = (id) => state.tables.accounts.find((a) => a.id === id) || null;
+
+/** Sum of the entries recorded on the account (without the opening balance). */
+function accountFlow(a) {
+  let sum = 0;
+  for (const e of T('money_entries')) {
+    if (e.accountId !== a.id || e.currency !== a.currency) continue;
+    sum += e.type === EntryType.income ? e.amount : -e.amount;
+  }
+  return sum;
+}
+export const accountBalance = (a) => a.openingBalance + accountFlow(a);
+
+/** The account new entries go to: the last one used in that currency, else the first. */
+export function defaultAccountId(currency) {
+  const list = accounts(currency);
+  const last = parseInt(state.settings[`last_account_${currency}`], 10);
+  return (list.find((a) => a.id === last) || list[0])?.id ?? null;
+}
+export const rememberAccount = (currency, id) => { if (id != null) state.settings[`last_account_${currency}`] = String(id); };
+
+export function addAccount({ name, icon, color, currency, balance }) {
+  return mutate(() => {
+    const list = state.tables.accounts;
+    const id = list.reduce((m, a) => Math.max(m, a.id), 0) + 1;
+    list.push({ id, name, icon, color, currency, openingBalance: balance, sortOrder: list.length, createdAt: Date.now() });
+    return id;
+  });
+}
+
+/** [balance] is what's in the account now; the starting amount is worked back from it. */
+export function updateAccount(id, { name, icon, color, balance }) {
+  mutate(() => {
+    const a = account(id);
+    Object.assign(a, { name, icon, color });
+    if (balance != null) a.openingBalance = balance - accountFlow(a);
+  });
+}
+
+/** Removes the account; its entries stay, just without an account. */
+export function deleteAccount(id) {
+  mutate((s) => {
+    s.tables.accounts = s.tables.accounts.filter((a) => a.id !== id);
+    for (const e of T('money_entries')) if (e.accountId === id) e.accountId = null;
+  });
 }
 
 // ------------------------------------------------------------------ backup
@@ -505,6 +572,7 @@ const MONEY_KIND = 'nazzamha-money', FULL_KIND = 'nazzamha-full', VERSION = 1;
 export function exportJson() {
   const tables = {};
   for (const t of MONEY_TABLES) tables[t] = T(t);
+  tables.accounts = state.tables.accounts; // ignored by the phone/computer app
   const s = {};
   for (const [k, v] of Object.entries(state.settings)) if (isMoneySetting(k)) s[k] = v;
   return JSON.stringify({ kind: MONEY_KIND, version: VERSION, exportedAt: new Date().toISOString(), settings: s, tables }, null, 1);
@@ -543,6 +611,8 @@ export function importBackup(file) {
         return row;
       });
     }
+    // Files from the phone/computer app have no accounts: keep this device's.
+    if (Array.isArray(file.data.tables.accounts)) s.tables.accounts = file.data.tables.accounts.map((a) => ({ ...a, createdAt: toMs(a.createdAt) }));
     for (const [k, v] of Object.entries(file.data.settings || {})) if (isMoneySetting(k)) s.settings[k] = String(v);
   });
 }

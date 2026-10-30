@@ -282,7 +282,7 @@ input, textarea { font-size: 16px; } /* 16px+ keeps iOS from zooming on focus */
 .frow { display: flex; align-items: center; gap: 10px; min-height: 58px; border-bottom: 1px solid #f0f3fa; }
 .frow:last-child { border-bottom: 0; }
 .frow > .ic { color: var(--primary); font-size: 22px; width: 24px; }
-.frow label { width: 74px; flex: none; font-weight: 700; color: var(--muted); font-size: 14px; }
+.frow > label { width: 74px; flex: none; font-weight: 700; color: var(--muted); font-size: 14px; }
 .frow .field { flex: 1; min-width: 0; }
 .bare {
   width: 100%; border: 0; outline: 0; background: transparent; padding: 12px 6px; font-size: 16px;
@@ -311,7 +311,7 @@ textarea.bare { resize: none; min-height: 70px; }
 
 .choice-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 0; }
 .choice {
-  padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border); background: #fff; font-weight: 700;
+  padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border); background: #fff; font-weight: 700;
   font-size: 13.5px; display: inline-flex; align-items: center; gap: 4px; color: var(--muted);
 }
 .choice .ic { font-size: 17px; }
@@ -429,3 +429,10 @@ textarea.bare { resize: none; min-height: 70px; }
 .stat .val.fit { display: flex; }
 .mini b, .info-chip b, .amounts3 b { white-space: nowrap; }
 .donut .mid b.fit { max-width: 80px; text-align: center; }
+
+/* Accounts (محفظة كاش، نقدي…) */
+.accounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.account { border: 1px solid var(--border); border-radius: 16px; padding: 10px 12px; cursor: pointer; transition: transform .12s; }
+.account:active { transform: scale(.97); }
+.account .badge .ic { font-size: 20px; }
+.acc-bal { font-size: 21px; font-weight: 800; margin-top: 10px; }

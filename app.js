@@ -445,6 +445,7 @@ function transactionsTab() {
       ${stat({ label: 'الادخار', icon: 'savings', color: C.green, value: Money.number(now.saving), unit: sym, foot: changeLabel(S.change(now.saving, prev.saving)) })}
       ${stat({ label: 'المتبقي', icon: 'account_balance_wallet', color: C.purple, value: Money.number(now.remaining), unit: sym, foot: now.income === 0 ? '—' : `<span class="num">${Math.round((now.remaining * 100) / now.income)}%</span> من الدخل` })}
     </div>
+    <div class="gap14"></div>${accountsCard(cur)}
     <div class="gap14"></div>
     <div class="grid2">${budgetCard(now.expense, cur)}${breakdownCard(entries, cur, cats)}</div>
     <div class="gap14"></div>${goalsSection()}<div class="gap14"></div>
@@ -539,6 +540,63 @@ function goalsSection() {
   }).join('') + `<button class="text-btn" ${on(() => editGoal())}>${ic('add')}هدف ادخار جديد</button>`;
 }
 
+// ------------------------------------------------------------------ accounts
+
+const ACCOUNT_ICONS = ['smartphone', 'payments', 'account_balance_wallet', 'credit_card', 'savings'];
+
+function accountsCard(cur) {
+  const list = S.accounts(cur);
+  const total = list.reduce((sum, a) => sum + S.accountBalance(a), 0);
+  const tiles = list.map((a) => {
+    const b = S.accountBalance(a);
+    const col = intHex(a.color);
+    return `<div class="account" style="background:${tint(col, 0.08)};border-color:${tint(col, 0.22)}" ${on(() => editAccount(a))}>
+      <div class="row" style="gap:8px"><div class="badge" style="width:34px;height:34px;border-radius:10px;background:${col}">${ic(a.icon)}</div><b class="grow ellipsis">${esc(a.name)}</b></div>
+      <div class="acc-bal fit" style="color:${b < 0 ? C.red : C.ink}">${money(b, a.currency)}</div></div>`;
+  }).join('');
+  return `<div class="card">${sectionTitle('حساباتي', 'account_balance_wallet', { action: 'حساب جديد', onAction: () => editAccount() })}<div class="gap12"></div>
+    ${list.length ? `<div class="accounts">${tiles}</div>
+      ${list.length > 1 ? `<div class="row small" style="margin-top:10px"><span class="grow muted">الإجمالي في كل الحسابات</span><b>${money(total, cur)}</b></div>` : ''}`
+    : '<div class="muted">ضيف حساب (محفظة، نقدي، بنك…) عشان تعرف معاك كام في كل مكان</div>'}</div>`;
+}
+
+async function editAccount(a = null) {
+  const now = a ? S.accountBalance(a) : 0;
+  const f = {
+    name: a?.name || '', icon: a?.icon || 'account_balance_wallet', color: a?.color ?? PALETTE[0],
+    currency: a?.currency || currency(), balance: now > 0 ? Money.editable(now) : '', touched: false,
+  };
+  const result = await sheet((api) => `<h3>${a ? 'تعديل الحساب' : 'حساب جديد'}</h3><div class="gap12"></div>
+    <input class="input" placeholder="اسم الحساب — مثلاً: بنك، فيزا" value="${esc(f.name)}" ${onInput((v) => { f.name = v; })}>
+    <div class="gap12"></div><div class="muted small" style="margin-bottom:6px">${a ? 'الرصيد اللي فيه دلوقتي' : 'الرصيد اللي معاك فيه دلوقتي'}</div>
+    <div class="input row" style="justify-content:space-between">
+      <button class="grow" style="text-align:start" ${on(async () => {
+        const r = await calculator({ initial: f.balance, cur: f.currency, title: 'الرصيد' });
+        if (r != null) { f.balance = r; f.touched = true; api.render(); }
+      })}><span class="${f.balance || a ? 'bold num' : 'faint'}">${f.touched || !a ? esc(Money.number(Money.parse(f.balance || '0') || 0)) : esc(Money.number(now))}</span></button>
+      <button class="muted bold" ${a ? 'disabled' : ''} ${on(async () => { const c = await pickCurrencyCode(f.currency); if (c) { f.currency = c; api.render(); } })}>${esc(Money.symbol(f.currency))}</button>
+    </div>
+    ${a ? '<div class="small muted" style="margin-top:6px">لو الرصيد مش مظبوط عدّله هنا — المعاملات مش هتتغير.</div>' : ''}
+    <div class="gap12"></div><div class="chips-wrap">${ACCOUNT_ICONS.map((k) => `<button class="chip ${f.icon === k ? 'on' : ''}" ${on(() => { f.icon = k; api.render(); })}>${ic(k)}</button>`).join('')}</div>
+    <div class="gap12"></div><div class="color-row">${PALETTE.map((c) => `<button class="${c === f.color ? 'on' : ''}" style="background:${intHex(c)}" ${on(() => { f.color = c; api.render(); })}></button>`).join('')}</div>
+    <div class="actions"><button class="btn outline" ${on(() => api.close(null))}>إلغاء</button><button class="btn primary" ${on(() => {
+      if (!f.name.trim()) return toast('اكتب اسم الحساب');
+      api.close('save');
+    })}>حفظ</button></div>
+    ${a ? `<div class="center" style="margin-top:8px"><button class="text-btn" style="color:${C.red}" ${on(() => api.close('delete'))}>${ic('delete')}احذف الحساب</button></div>` : ''}`);
+  if (result === 'save') {
+    const balance = Money.parse(f.balance || '0') ?? 0;
+    if (a) S.updateAccount(a.id, { name: f.name.trim(), icon: f.icon, color: f.color, balance: f.touched ? balance : null });
+    else S.addAccount({ name: f.name.trim(), icon: f.icon, color: f.color, currency: f.currency, balance });
+    toast('اتحفظ الحساب ✓');
+  } else if (result === 'delete') {
+    if (await confirmSheet(`تحذف حساب ${a.name}؟`, 'المعاملات اللي عليه هتفضل متسجلة، بس من غير حساب.')) {
+      S.deleteAccount(a.id);
+      toast('اتحذف الحساب');
+    }
+  }
+}
+
 function txTile(e, cats) {
   const cat = cats.get(e.categoryId);
   const color = e.type === EntryType.income ? C.green : e.type === EntryType.expense ? C.red : C.teal;
@@ -547,7 +605,7 @@ function txTile(e, cats) {
   return `<div class="tx" ${on(() => go(`/add?type=${e.type === EntryType.income ? 'income' : 'expense'}&id=${e.id}`))}>
     <div class="avatar" style="background:${tint(iconColor, 0.14)};color:${iconColor}">${ic(appIcon(iconKey))}</div>
     <div class="grow"><div class="title"><span class="ellipsis">${esc(e.title)}</span>${e.recurring ? ic('autorenew') : ''}</div>
-      <div class="small muted">${e.type === EntryType.saving ? 'ادخار' : esc(cat?.name || 'بدون فئة')}</div></div>
+      <div class="small muted ellipsis">${e.type === EntryType.saving ? 'ادخار' : esc(cat?.name || 'بدون فئة')}${e.accountId != null && S.account(e.accountId) ? ` • ${esc(S.account(e.accountId).name)}` : ''}</div></div>
     <div class="amt"><b style="color:${color}">${money(e.amount, e.currency)}</b><span>${Dates.relative(new Date(e.date))}</span></div></div>`;
 }
 
@@ -578,7 +636,7 @@ function goalOptions(goal) {
       api.close();
       const v = await askAmount(`حوّش لـ ${goal.title}`, goal.currency);
       if (!v) return;
-      S.addEntry({ title: `ادخار: ${goal.title}`, amount: v, currency: goal.currency, type: EntryType.saving, goalId: goal.id, date: Date.now() });
+      S.addEntry({ title: `ادخار: ${goal.title}`, amount: v, currency: goal.currency, type: EntryType.saving, goalId: goal.id, date: Date.now(), accountId: S.defaultAccountId(goal.currency) });
       toast('اتحوّش ✓');
     })}>${ic('add_card', `color:${C.green}`)}<div><div class="t">حوّش مبلغ</div><div class="s">هيتسجل كادخار في الشهر ده</div></div></div>
     <div class="list-item" ${on(() => { api.close(); editGoal(goal); })}>${ic('edit', `color:${C.primary}`)}<div class="t">تعديل الهدف</div></div>
@@ -862,6 +920,7 @@ function initForm(type, id) {
   return {
     editing: e, title: e?.title || '', amount: e ? Money.editable(e.amount) : '', note: e?.note || '', currency: e?.currency || currency(),
     categoryId: e?.categoryId ?? null, date: e ? new Date(e.date) : new Date(), recurring: e?.recurring || false,
+    accountId: e ? e.accountId ?? null : S.defaultAccountId(e?.currency || currency()),
   };
 }
 
@@ -936,11 +995,16 @@ function entryForm(income) {
   const cats = S.categoryMap();
   const cat = cats.get(f.categoryId);
   const color = income ? C.green : C.red;
+  // Accounts are per currency: switching currency moves to that currency's account.
+  const accs = S.accounts(f.currency);
+  if (f.accountId != null && !accs.some((a) => a.id === f.accountId)) f.accountId = S.defaultAccountId(f.currency);
+  if (f.accountId == null && !f.editing) f.accountId = S.defaultAccountId(f.currency);
   const save = (another) => {
     const value = Money.parse(f.amount || '');
     if (!value) return toast('اكتب المبلغ');
     const name = f.title.trim() || cat?.name || (income ? 'دخل' : 'مصروف');
-    const data = { title: name, amount: value, currency: f.currency, type, categoryId: f.categoryId, date: f.date.getTime(), note: f.note.trim() || null, recurring: f.recurring };
+    const data = { title: name, amount: value, currency: f.currency, type, categoryId: f.categoryId, date: f.date.getTime(), note: f.note.trim() || null, recurring: f.recurring, accountId: f.accountId };
+    S.rememberAccount(f.currency, f.accountId);
     if (f.editing) S.updateEntry(f.editing.id, data);
     else S.addEntry(data);
     saved(another, 'اتسجل ✓');
@@ -950,6 +1014,7 @@ function entryForm(income) {
   return `<div class="form-section">${sectionTitle(income ? 'تفاصيل الدخل' : 'تفاصيل المصروف', income ? 'savings' : 'payments', { color })}
       ${frow('description_outlined', 'الاسم', textField(f.title, income ? 'مثال: مرتب أكتوبر' : 'مثال: فاتورة كهربا', (v) => { f.title = v; }))}
       ${frow('attach_money', 'المبلغ', amountField(f, 'amount'), C.green)}
+      ${accs.length ? frow('account_balance_wallet', 'الحساب', choiceRow(accs.map((a) => [a.id, a.name, a.icon]), f.accountId, (v) => { f.accountId = v; }), C.teal) : ''}
       ${frow('sell', 'الفئة', `<button class="picker ${cat ? '' : 'placeholder'}" ${on(() => pickCategory(type))}>${cat ? ic(appIcon(cat.icon), `color:${intHex(cat.color)}`) : ''}<span>${esc(cat?.name || 'اختار الفئة')}</span></button>`, C.purple)}
       ${frow('calendar_month', 'التاريخ', dateField(f.date, (d) => { f.date = new Date(d.getFullYear(), d.getMonth(), d.getDate(), f.date.getHours(), f.date.getMinutes()); }))}
       ${frow('bar_chart', 'النوع', choiceRow([[false, 'مرة واحدة', 'looks_one'], [true, 'متكرر كل شهر', 'autorenew']], f.recurring, (v) => { f.recurring = v; }), C.purple)}
