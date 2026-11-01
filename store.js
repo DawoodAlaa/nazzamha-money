@@ -156,7 +156,7 @@ async function idbPut(value) {
 }
 
 function emptyState() {
-  const tables = { accounts: [] };
+  const tables = { accounts: [], countdowns: [] };
   for (const t of MONEY_TABLES) tables[t] = [];
   return { settings: {}, tables };
 }
@@ -205,6 +205,7 @@ export async function load() {
   s.settings ||= {};
   // Data saved before accounts existed gets the two starting accounts.
   if (!Array.isArray(s.tables.accounts)) seedAccounts(s, s.settings.currency || 'EGP');
+  s.tables.countdowns ||= [];
   state = s;
   try { navigator.storage?.persist?.(); } catch (_) { /* ignore */ }
   generateRecurring(new Date(), true);
@@ -565,6 +566,29 @@ export function deleteAccount(id) {
   });
 }
 
+// ------------------------------------------------------------------ important dates
+// Same rows as the app's countdowns table (امتحان، مقابلة…), so they travel
+// in the backup file both ways.
+
+export const CountdownKind = { exam: 0, interview: 1, doctor: 2, travel: 3, occasion: 4, reminder: 5, other: 6 };
+
+/** Not done yet, soonest first (past ones too, so they can be marked done). */
+export const countdowns = () => state.tables.countdowns.filter((c) => !c.done).sort((a, b) => a.at - b.at);
+
+export function saveCountdown(id, { title, kind, at }) {
+  mutate(() => {
+    const list = state.tables.countdowns;
+    if (id != null) {
+      Object.assign(list.find((c) => c.id === id), { title, kind, at, done: false });
+      return;
+    }
+    const nid = list.reduce((m, c) => Math.max(m, c.id), 0) + 1;
+    list.push({ id: nid, title, kind, at, note: null, remind: '1440,60', pinned: true, done: false, createdAt: Date.now() });
+  });
+}
+export const setCountdownDone = (id) => mutate(() => { state.tables.countdowns.find((c) => c.id === id).done = true; });
+export const deleteCountdown = (id) => mutate((s) => { s.tables.countdowns = s.tables.countdowns.filter((c) => c.id !== id); });
+
 // ------------------------------------------------------------------ backup
 
 const MONEY_KIND = 'nazzamha-money', FULL_KIND = 'nazzamha-full', VERSION = 1;
@@ -573,6 +597,7 @@ export function exportJson() {
   const tables = {};
   for (const t of MONEY_TABLES) tables[t] = T(t);
   tables.accounts = state.tables.accounts; // ignored by the phone/computer app
+  tables.countdowns = state.tables.countdowns; // read by the app only from full backups
   const s = {};
   for (const [k, v] of Object.entries(state.settings)) if (isMoneySetting(k)) s[k] = v;
   return JSON.stringify({ kind: MONEY_KIND, version: VERSION, exportedAt: new Date().toISOString(), settings: s, tables }, null, 1);
@@ -612,6 +637,8 @@ export function importBackup(file) {
       });
     }
     // Files from the phone/computer app have no accounts: keep this device's.
+    // Important dates come from web files and the app's full backups.
+    if (Array.isArray(file.data.tables.countdowns)) s.tables.countdowns = file.data.tables.countdowns.map((c) => ({ ...c, at: toMs(c.at), createdAt: toMs(c.createdAt) }));
     if (Array.isArray(file.data.tables.accounts)) s.tables.accounts = file.data.tables.accounts.map((a) => ({ ...a, createdAt: toMs(a.createdAt) }));
     for (const [k, v] of Object.entries(file.data.settings || {})) if (isMoneySetting(k)) s.settings[k] = String(v);
   });

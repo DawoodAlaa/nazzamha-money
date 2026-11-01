@@ -421,6 +421,121 @@ function pickCurrency() {
     </div>`).join('')}`);
 }
 
+// ------------------------------------------------------------------ important dates
+// امتحان، مقابلة، دكتور… with a live "فاضل" countdown, like the app's strip.
+
+const CD_KINDS = [
+  { label: 'امتحان', icon: 'school', color: '#8b5cf6' },
+  { label: 'مقابلة شغل', icon: 'business_center', color: '#2563eb' },
+  { label: 'دكتور', icon: 'local_hospital', color: '#ef4444' },
+  { label: 'سفر', icon: 'flight_takeoff', color: '#0ea5e9' },
+  { label: 'مناسبة', icon: 'celebration', color: '#ec4899' },
+  { label: 'تذكير', icon: 'notifications_active', color: '#f59e0b' },
+  { label: 'ميعاد', icon: 'event', color: '#14b8a6' },
+];
+const cdKind = (k) => CD_KINDS[k] || CD_KINDS[6];
+const WEEKDAYS = Dates.weekdays;
+
+/** 9:30 ص */
+function clock(minutes) {
+  const h24 = Math.floor(minutes / 60) % 24;
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(minutes % 60).padStart(2, '0')} ${h24 < 12 ? 'ص' : 'م'}`;
+}
+const weekdayDayMonth = (d) => `${WEEKDAYS[d.getDay()]} ${Dates.dayMonth(d)}`;
+
+/** Time left split in a big and a small part: ["3 أيام", "و 5 ساعات"]. */
+function countdownText(ms) {
+  if (ms < 0) return ['خلص', ''];
+  const days = Math.floor(ms / 86400000), hours = Math.floor(ms / 3600000) % 24, minutes = Math.floor(ms / 60000) % 60;
+  const unit = (n, one, two, few, many) => (n === 1 ? one : n === 2 ? two : n >= 3 && n <= 10 ? `${n} ${few}` : `${n} ${many}`);
+  const d = unit(days, 'يوم', 'يومين', 'أيام', 'يوم');
+  const h = unit(hours, 'ساعة', 'ساعتين', 'ساعات', 'ساعة');
+  const m = unit(minutes, 'دقيقة', 'دقيقتين', 'دقايق', 'دقيقة');
+  if (days > 0) return [d, hours > 0 ? `و ${h}` : ''];
+  if (hours > 0) return [h, minutes > 0 ? `و ${m}` : ''];
+  if (minutes > 0) return [m, ''];
+  return ['دلوقتي', ''];
+}
+
+function countdownStrip() {
+  const items = S.countdowns();
+  if (!items.length) {
+    return `<div class="card tap" style="background:var(--blue-tint);border-color:#d6e4ff" ${on(() => countdownSheet())}><div class="row">
+      <div class="badge" style="width:46px;height:46px;border-radius:14px;background:${C.primary}">${ic('hourglass_top')}</div>
+      <div class="grow"><div class="xbold" style="font-size:15.5px">عندك امتحان أو ميعاد مهم؟</div><div class="muted small">ضيفه وهنعدّلك الوقت اللي فاضل عليه</div></div>
+      ${ic('add_circle', `color:${C.primary};font-size:30px`)}</div></div>`;
+  }
+  const now = Date.now();
+  return `<div class="cd-strip">${items.map((c) => {
+    const k = cdKind(c.kind);
+    const left = c.at - now;
+    const passed = left < 0;
+    const [big, small] = countdownText(left);
+    const at = new Date(c.at);
+    return `<div class="cd-card ${!passed && left < 86400000 ? 'urgent' : ''}" style="--c:${k.color};background:linear-gradient(135deg, ${tint(k.color, 0.16)}, ${tint(k.color, 0.05)});border-color:${tint(k.color, 0.3)}"
+        ${passed ? '' : `data-at="${c.at}"`} ${on(() => countdownSheet(c))}>
+      <div class="row" style="gap:6px">${ic(k.icon, `color:${k.color}`)}<b class="grow ellipsis">${esc(c.title)}</b></div>
+      ${passed
+        ? `<div class="row"><b class="grow" style="color:${k.color};font-size:18px">عدّى الميعاد</b><button class="text-btn" ${on(() => { S.setCountdownDone(c.id); toast('خلص ✓'); })}>خلص ✓</button></div>`
+        : `<div><div class="small bold" style="color:${k.color}">فاضل</div><div class="cd-time"><b class="cd-big">${big}</b><span class="cd-small">${small}</span></div></div>`}
+      <div class="small muted ellipsis">${weekdayDayMonth(at)} • ${clock(at.getHours() * 60 + at.getMinutes())}</div>
+    </div>`;
+  }).join('')}<button class="cd-add" ${on(() => countdownSheet())}>${ic('add')}<span>ميعاد</span></button></div>`;
+}
+
+// Keep the countdowns ticking without redrawing the page.
+setInterval(() => {
+  let crossed = false;
+  for (const el of document.querySelectorAll('.cd-card[data-at]')) {
+    const left = Number(el.dataset.at) - Date.now();
+    if (left < 0) { crossed = true; continue; }
+    const [big, small] = countdownText(left);
+    el.querySelector('.cd-big').textContent = big;
+    el.querySelector('.cd-small').textContent = small;
+    el.classList.toggle('urgent', left < 86400000);
+  }
+  if (crossed && !openSheets.length) render();
+}, 20000);
+
+async function countdownSheet(item = null) {
+  const start = item ? new Date(item.at) : null;
+  const f = {
+    title: item?.title || '',
+    kind: item?.kind ?? S.CountdownKind.exam,
+    date: start ? Dates.dateOnly(start) : new Date(Dates.today().getTime() + 7 * 86400000),
+    time: start ? start.getHours() * 60 + start.getMinutes() : 10 * 60,
+  };
+  const at = () => new Date(f.date.getFullYear(), f.date.getMonth(), f.date.getDate(), Math.floor(f.time / 60), f.time % 60);
+  const result = await sheet((api) => {
+    const k = cdKind(f.kind);
+    const left = at().getTime() - Date.now();
+    const [big, small] = countdownText(left);
+    return `<h3>${item ? 'تعديل الميعاد' : 'ميعاد مهم جديد ⏳'}</h3><div class="gap12"></div>
+      <div class="input row" style="gap:8px">${ic(k.icon, `color:${k.color}`)}<input class="bare" style="padding:2px 0;font-weight:600" placeholder="مثلاً: امتحان رياضة، مقابلة في شركة…" value="${esc(f.title)}" ${onInput((v) => { f.title = v; })}></div>
+      <div class="gap12"></div><div class="chips-wrap">${CD_KINDS.map((x, i) => `<button class="chip" style="${i === f.kind ? `background:${tint(x.color, 0.14)};border-color:${x.color};color:${x.color}` : ''}" ${on(() => { f.kind = i; api.render(); })}>${ic(x.icon, `color:${x.color}`)}${x.label}</button>`).join('')}</div>
+      <div class="gap12"></div><div class="row" style="gap:8px">
+        <label class="input picker grow" style="padding:12px">${ic('calendar_month')}<span>${weekdayDayMonth(f.date)}</span>${dateInput(f.date, (d) => { f.date = d; }, () => api.render(), weekdayDayMonth)}</label>
+        <label class="input picker grow" style="padding:12px">${ic('schedule')}<span>${clock(f.time)}</span>${timeInput(f.time, (m) => { f.time = m; }, () => api.render())}</label>
+      </div>
+      <div class="row" style="margin-top:10px;padding:10px 14px;border-radius:14px;background:${tint(k.color, 0.1)}">${ic('hourglass_bottom', `color:${k.color}`)}
+        <b style="color:${k.color}">${left < 0 ? 'الميعاد ده عدّى' : `فاضل ${big} ${small}`}</b></div>
+      <div class="gap16"></div>
+      <button class="btn primary" ${on(() => api.close('save'))}>${ic('check')}${item ? 'حفظ' : 'ضيف الميعاد'}</button>
+      ${item ? `<div class="row" style="justify-content:space-around;margin-top:8px">
+        <button class="text-btn" ${on(() => api.close('done'))}>${ic('task_alt')}خلص الميعاد</button>
+        <button class="text-btn" style="color:${C.red}" ${on(() => api.close('delete'))}>${ic('delete')}حذف</button></div>` : ''}`;
+  });
+  if (result === 'save') {
+    S.saveCountdown(item?.id ?? null, { title: f.title.trim() || cdKind(f.kind).label, kind: f.kind, at: at().getTime() });
+    toast(item ? 'اتحفظ ✓' : 'اتضاف الميعاد ✓');
+  } else if (result === 'done') {
+    S.setCountdownDone(item.id);
+  } else if (result === 'delete' && (await confirmSheet('تحذف الميعاد؟'))) {
+    S.deleteCountdown(item.id);
+  }
+}
+
 // ------------------------------------------------------------------ money page
 
 function moneyPage(tab) {
@@ -429,6 +544,7 @@ function moneyPage(tab) {
     subtitle: tab === 0 ? 'دخلك ومصروفك وادخارك في مكان واحد' : 'تابع ديونك وأقساطك وجمعياتك',
     icon: tab === 0 ? 'account_balance_wallet' : 'handshake',
   })}<div class="content">
+    ${countdownStrip()}<div class="gap12"></div>
     ${pillTabs([{ label: 'المعاملات', icon: 'receipt_long' }, { label: 'الديون والأقساط', icon: 'handshake' }], tab, (i) => go(i === 0 ? '/' : '/debts', { replace: true }))}
     <div class="gap12"></div>${tab === 0 ? transactionsTab() : debtsTab()}</div></div>`;
 }
@@ -985,7 +1101,7 @@ function amountField(f, field, { currencyKey = 'currency', title } = {}) {
 }
 
 let dateTimer = null;
-function dateInput(d, set, redraw = render) {
+function dateInput(d, set, redraw = render, label = Dates.full) {
   const commit = () => { clearTimeout(dateTimer); dateTimer = null; redraw(); };
   return `<input type="date" value="${d ? Dates.key(d) : ''}" ${onChange((v, el) => {
     if (!v) return;
@@ -994,7 +1110,22 @@ function dateInput(d, set, redraw = render) {
     const label = el.parentElement;
     label.classList.remove('placeholder');
     const span = label.querySelector('span');
-    if (span) span.textContent = Dates.full(picked);
+    if (span) span.textContent = label(picked);
+    clearTimeout(dateTimer);
+    dateTimer = setTimeout(commit, 1000);
+  })} ${onBlur(() => { if (dateTimer) commit(); })}>`;
+}
+
+/** Time of day (minutes) with the native wheel; same redraw-after-close rule. */
+function timeInput(minutes, set, redraw = render) {
+  const commit = () => { clearTimeout(dateTimer); dateTimer = null; redraw(); };
+  const hhmm = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  return `<input type="time" value="${hhmm}" ${onChange((v, el) => {
+    if (!v) return;
+    const [h, m] = v.split(':').map(Number);
+    set(h * 60 + m);
+    const span = el.parentElement.querySelector('span');
+    if (span) span.textContent = clock(h * 60 + m);
     clearTimeout(dateTimer);
     dateTimer = setTimeout(commit, 1000);
   })} ${onBlur(() => { if (dateTimer) commit(); })}>`;
