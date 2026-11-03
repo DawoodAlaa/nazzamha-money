@@ -442,6 +442,9 @@ function clock(minutes) {
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   return `${h12}:${String(minutes % 60).padStart(2, '0')} ${h24 < 12 ? 'ص' : 'م'}`;
 }
+const timeOf = (d) => clock(d.getHours() * 60 + d.getMinutes());
+/** النهارده • 3:45 م */
+const stamp = (ms) => { const d = new Date(ms); return `${Dates.relative(d)} • ${timeOf(d)}`; };
 const weekdayDayMonth = (d) => `${WEEKDAYS[d.getDay()]} ${Dates.dayMonth(d)}`;
 
 /** Time left split in a big and a small part: ["3 أيام", "و 5 ساعات"]. */
@@ -728,7 +731,7 @@ async function editAccount(a = null) {
   }
 }
 
-function txTile(e, cats) {
+function txTile(e, cats, { timeOnly = false } = {}) {
   const cat = cats.get(e.categoryId);
   const color = e.type === EntryType.income ? C.green : e.type === EntryType.expense ? C.red : C.teal;
   const iconKey = e.type === EntryType.saving ? 'savings' : cat?.icon || 'other';
@@ -737,7 +740,7 @@ function txTile(e, cats) {
     <div class="avatar" style="background:${tint(iconColor, 0.14)};color:${iconColor}">${ic(appIcon(iconKey))}</div>
     <div class="grow"><div class="title"><span class="ellipsis">${esc(e.title)}</span>${e.recurring ? ic('autorenew') : ''}</div>
       <div class="small muted ellipsis">${e.type === EntryType.saving ? 'ادخار' : esc(cat?.name || 'بدون فئة')}${e.accountId != null && S.account(e.accountId) ? ` • ${esc(S.account(e.accountId).name)}` : ''}</div></div>
-    <div class="amt"><b style="color:${color}">${money(e.amount, e.currency)}</b><span>${Dates.relative(new Date(e.date))}</span></div></div>`;
+    <div class="amt"><b style="color:${color}">${money(e.amount, e.currency)}</b><span>${timeOnly ? timeOf(new Date(e.date)) : stamp(e.date)}</span></div></div>`;
 }
 
 // ------------------------------------------------------------------ goals
@@ -802,7 +805,7 @@ function transactionsPage() {
       const d = new Date(k);
       const spent = list.filter((e) => e.type === EntryType.expense).reduce((s, e) => s + e.amount, 0);
       return `<div class="day-head"><span>${Dates.weekday(d)} ${Dates.dayMonth(d)}</span><span class="small" style="color:${C.red}">${money(spent, cur)}</span></div>
-        <div class="card" style="padding:4px 12px">${list.map((e) => txTile(e, cats)).join('')}</div>`;
+        <div class="card" style="padding:4px 12px">${list.map((e) => txTile(e, cats, { timeOnly: true })).join('')}</div>`;
     }).join('');
   };
   return `<div class="page">${appbar('كل المعاملات')}<div class="content">
@@ -920,10 +923,10 @@ const missing = () => {
   return '<div class="page"></div>';
 };
 
-function paidRow({ title, subtitle, amount, paid, beforeApp, late, onToggle, onEdit }) {
+function paidRow({ title, subtitle, amount, paid, paidAt, beforeApp, late, onToggle, onEdit }) {
   return `<div class="paid-row" ${on(() => onToggle(!paid))}>
     <span class="check ${paid ? 'on' : ''}">${ic('check')}</span>
-    <div class="grow"><div class="bold">${title}</div><div class="small" style="color:${late ? C.red : C.muted}">${esc(beforeApp && paid ? `${subtitle} • قبل التطبيق` : subtitle)}</div></div>
+    <div class="grow"><div class="bold">${title}</div><div class="small" style="color:${late ? C.red : C.muted}">${esc(beforeApp && paid ? `${subtitle} • قبل التطبيق` : subtitle)}</div>${paid && !beforeApp && paidAt != null ? `<div class="small" style="color:${C.green}">اتدفع ${stamp(paidAt)}</div>` : ''}</div>
     <div style="text-align:left"><b>${amount}</b>${late ? `<div class="small" style="color:${C.red}">متأخر</div>` : ''}</div>
     ${onEdit ? `<button class="icon-btn" style="width:34px;height:34px;color:${C.faint}" aria-label="غيّر المبلغ" ${on(onEdit)}>${ic('edit', 'font-size:18px')}</button>` : ''}
   </div>`;
@@ -954,7 +957,7 @@ function debtDetail(id) {
     <div class="card">${sectionTitle(mine ? 'الدفعات' : 'اللي استلمته', 'history')}<div class="gap8"></div>
       ${v.payments.length ? [...v.payments].reverse().map((p) => `<div class="row" style="padding:8px 0">
         ${ic(p.beforeApp ? 'history_toggle_off' : 'check_circle', `color:${p.beforeApp ? C.muted : color}`)}
-        <div class="grow"><b>${money(p.amount, d.currency)}</b><div class="small muted">${p.beforeApp ? 'قبل ما تسجل في التطبيق' : Dates.full(new Date(p.date))}</div></div>
+        <div class="grow"><b>${money(p.amount, d.currency)}</b><div class="small muted">${p.beforeApp ? 'قبل ما تسجل في التطبيق' : `${Dates.full(new Date(p.date))} • ${timeOf(new Date(p.date))}`}</div></div>
         <button class="icon-btn" style="color:${C.faint}" aria-label="امسح" ${on(async () => { if (await confirmSheet('تمسح الدفعة دي؟')) S.deleteDebtPayment(p.id); })}>${ic('close')}</button></div>`).join('') : empty('لسه مفيش دفعات', 'payments')}
     </div>
     <div class="gap16"></div>
@@ -994,7 +997,7 @@ function planDetail(id) {
         <b class="grow">${months} ${months === 1 ? 'قسط' : 'أقساط'} × ${money(amount, p.currency)}</b><span class="muted bold">${money(months * amount, p.currency)}</span></div>`).join('')}</div>` : ''}
     <div class="gap14"></div>
     <div class="card" style="padding:6px 0">${v.items.map((i) => paidRow({
-      title: `القسط ${i.seq}`, subtitle: Dates.full(new Date(i.dueDate)), amount: money(i.amount, p.currency), paid: i.paidAt != null, beforeApp: i.beforeApp,
+      title: `القسط ${i.seq}`, subtitle: Dates.full(new Date(i.dueDate)), amount: money(i.amount, p.currency), paid: i.paidAt != null, paidAt: i.paidAt, beforeApp: i.beforeApp,
       late: i.paidAt == null && Dates.dateOnly(new Date(i.dueDate)) < today,
       onToggle: (val) => { S.setInstallmentPaid(i.id, val); if (val) offerMirror({ title: `قسط ${p.title} (${i.seq})`, amount: i.amount, currency: p.currency, income: false }); },
       onEdit: async () => { const a = await askAmount(`مبلغ القسط ${i.seq}`, p.currency, i.amount); if (a) S.updateInstallmentAmount(i.id, a); },
@@ -1024,7 +1027,7 @@ function assocDetail(id) {
     <div class="gap14"></div>
     <div class="card" style="padding:6px 0">${v.rounds.map((r) => paidRow({
       title: `الدور ${r.seq}${r.seq === a.myTurn ? ' (دورك تقبض 🎉)' : ''}`, subtitle: Dates.full(new Date(r.dueDate)), amount: money(a.monthlyAmount, a.currency),
-      paid: r.paidAt != null, beforeApp: r.beforeApp, late: r.paidAt == null && Dates.dateOnly(new Date(r.dueDate)) < today,
+      paid: r.paidAt != null, paidAt: r.paidAt, beforeApp: r.beforeApp, late: r.paidAt == null && Dates.dateOnly(new Date(r.dueDate)) < today,
       onToggle: (val) => { S.setRoundPaid(r.id, val); if (val) offerMirror({ title: `جمعية ${a.title} (دور ${r.seq})`, amount: a.monthlyAmount, currency: a.currency, income: false }); },
     })).join('')}</div>
   </div></div>`;
@@ -1185,6 +1188,7 @@ function entryForm(income) {
       ${accs.length ? frow('account_balance_wallet', 'الحساب', choiceRow(accs.map((a) => [a.id, a.name, a.icon]), f.accountId, (v) => { f.accountId = v; }), C.teal) : ''}
       ${frow('sell', 'الفئة', `<button class="picker ${cat ? '' : 'placeholder'}" ${on(() => pickCategory(type))}>${cat ? ic(appIcon(cat.icon), `color:${intHex(cat.color)}`) : ''}<span>${esc(cat?.name || 'اختار الفئة')}</span></button>`, C.purple)}
       ${frow('calendar_month', 'التاريخ', dateField(f.date, (d) => { f.date = new Date(d.getFullYear(), d.getMonth(), d.getDate(), f.date.getHours(), f.date.getMinutes()); }))}
+      ${frow('schedule', 'الوقت', `<label class="picker">${ic('schedule')}<span>${timeOf(f.date)}</span>${timeInput(f.date.getHours() * 60 + f.date.getMinutes(), (m) => { f.date = new Date(f.date.getFullYear(), f.date.getMonth(), f.date.getDate(), Math.floor(m / 60), m % 60); })}</label>`)}
       ${frow('bar_chart', 'النوع', choiceRow([[false, 'مرة واحدة', 'looks_one'], [true, 'متكرر كل شهر', 'autorenew']], f.recurring, (v) => { f.recurring = v; }), C.purple)}
       ${frow('notes', 'ملاحظات', textField(f.note, 'أضف أي ملاحظات…', (v) => { f.note = v; }, { multiline: true }))}
       ${f.recurring ? '<div class="small muted" style="padding:6px 2px">هيتسجل تلقائياً كل شهر في نفس اليوم لحد ما تقفل التكرار.</div>' : ''}
